@@ -1,5 +1,6 @@
 "use client"
 
+// TEST EDIT — github to framer sync check (safe to remove)
 import * as React from "react"
 
 // ✅ Cloudflare image proxy helper (same logic as VillasGrid)
