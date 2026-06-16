@@ -34,10 +34,25 @@ const SERIF_STACK =
 const SANS_STACK =
     '"Inter", "Inter var", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif'
 
-// ✅ Cloudflare image proxy helper (same logic as VillasGrid / Social)
+// ✅ Image helper.
+// Blog covers are Framer CMS images on framerusercontent.com — our Cloudflare
+// proxy (img.frenchmaison.co.uk) 403s on that host, and framerusercontent only
+// honours `scale-down-to`, so resize those natively and skip the proxy.
+// Everything else goes through the Cloudflare proxy like the other components.
 const getOptimizedImage = (url: string, width: number, quality = 80) => {
-    const base = "https://img.frenchmaison.co.uk/"
     if (!url) return ""
+
+    if (url.includes("framerusercontent.com")) {
+        const dpr =
+            typeof window !== "undefined"
+                ? Math.min(window.devicePixelRatio || 1, 2)
+                : 1
+        const target = Math.min(2048, Math.round(width * dpr))
+        const clean = url.split("?")[0]
+        return `${clean}?scale-down-to=${target}`
+    }
+
+    const base = "https://img.frenchmaison.co.uk/"
 
     const standardWidths = [400, 800, 1200, 1600, 2000]
     const roundToNearest = (target: number) =>
