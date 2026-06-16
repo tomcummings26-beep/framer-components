@@ -6,21 +6,27 @@ import { addPropertyControls, ControlType } from "framer"
 /* -----------------------------------------------------------
    BlogHub — editorial blog hub for frenchmaison.co.uk
    - Uniform responsive card grid, newest post first
-   - Region filter chips auto-derived from the loaded posts
+   - Fetches all articles from a generated JSON file in the repo
 
    DATA SOURCE
-   Posts are supplied via the `posts` Array property control
-   (schema mirrors a blog CMS collection: Title, Excerpt, Cover,
-   Region, Date, Link, Author, Read time, Featured). A single
-   Framer code component can't read a whole CMS collection to
-   filter across items, so the designer populates/links these
-   entries in the properties panel.
+   A Framer code component can't read a CMS collection directly,
+   so the 17 Articles are pre-exported to `articles.json` at the
+   root of the framer-components repo and fetched at runtime from
+   raw.githubusercontent.com (default `sourceUrl` below).
 
-   ➜ SWAP POINT: to drive this from a live feed later (e.g. a
-   `blog-api` on Railway like villa-api, or an exported CMS JSON),
-   replace `props.posts` with a fetched array in a useEffect and
-   keep everything below unchanged.
+   articles.json is produced by `scripts/gen_articles.py`, which
+   reads the published site's search index (title, excerpt, date,
+   author, read time, url) and each post's og:image (cover).
+   ➜ When you add/edit posts in the CMS and republish, re-run that
+   script and commit the refreshed articles.json — no component
+   change needed.
+
+   The `posts` prop seeds initial state so the canvas shows content
+   instantly; the fetch then replaces it with the live list.
 ----------------------------------------------------------- */
+
+const ARTICLES_URL =
+    "https://raw.githubusercontent.com/tomcummings26-beep/framer-components/main/articles.json"
 
 const SERIF_STACK =
     '"Cormorant Garamond", "Libre Baskerville", Georgia, "Times New Roman", serif'
@@ -48,22 +54,10 @@ const getOptimizedImage = (url: string, width: number, quality = 80) => {
     return `${base}?url=${encodeURIComponent(url)}&width=${finalWidth}&quality=${quality}`
 }
 
-const formatDate = (iso: string) => {
-    if (!iso) return ""
-    const d = new Date(iso)
-    if (isNaN(d.getTime())) return iso
-    return d.toLocaleDateString("en-GB", {
-        day: "numeric",
-        month: "long",
-        year: "numeric",
-    })
-}
-
 type Post = {
     title: string
     excerpt: string
     cover: string
-    region: string
     date: string
     href: string
     author?: string
@@ -72,10 +66,10 @@ type Post = {
 }
 
 type Props = {
+    sourceUrl: string
     posts: Post[]
     heading: string
     intro: string
-    showRegionFilter: boolean
     maxPosts: number
     columns: "auto" | "2" | "3" | "4"
     maxWidth: number
@@ -93,10 +87,10 @@ type Props = {
 
 export default function BlogHub(props: Props) {
     const {
+        sourceUrl,
         posts,
         heading,
         intro,
-        showRegionFilter,
         maxPosts,
         columns,
         maxWidth,
@@ -112,38 +106,42 @@ export default function BlogHub(props: Props) {
         linkColor,
     } = props
 
-    // Newest first, then optional cap
-    const sortedPosts = React.useMemo(() => {
-        const list = [...(posts || [])].sort(
-            (a, b) =>
-                new Date(b.date).getTime() - new Date(a.date).getTime()
-        )
-        return maxPosts > 0 ? list.slice(0, maxPosts) : list
-    }, [posts, maxPosts])
+    // Seed with the prop posts so the canvas renders instantly,
+    // then replace with the live fetched list.
+    const [loaded, setLoaded] = React.useState<Post[]>(posts || [])
 
-    // Region chips derived from the posts we're showing
-    const regions = React.useMemo(() => {
-        const seen: string[] = []
-        for (const p of sortedPosts) {
-            const r = (p.region || "").trim()
-            if (r && !seen.includes(r)) seen.push(r)
-        }
-        return seen
-    }, [sortedPosts])
-
-    const [activeRegion, setActiveRegion] = React.useState("All")
-
-    // Reset filter if the active region disappears from the data
     React.useEffect(() => {
-        if (activeRegion !== "All" && !regions.includes(activeRegion)) {
-            setActiveRegion("All")
+        if (!sourceUrl) return
+        let cancelled = false
+        async function load() {
+            try {
+                const res = await fetch(sourceUrl, { cache: "no-store" })
+                if (!res.ok) return
+                const data: Post[] = await res.json()
+                if (!cancelled && Array.isArray(data) && data.length) {
+                    setLoaded(data)
+                }
+            } catch (err) {
+                console.error("BlogHub: failed to load articles", err)
+            }
         }
-    }, [regions, activeRegion])
+        load()
+        return () => {
+            cancelled = true
+        }
+    }, [sourceUrl])
 
-    const visiblePosts =
-        activeRegion === "All"
-            ? sortedPosts
-            : sortedPosts.filter((p) => p.region === activeRegion)
+    // Newest first (articles.json is pre-sorted, but stay defensive),
+    // then optional cap.
+    const visiblePosts = React.useMemo(() => {
+        const list = [...(loaded || [])].sort((a, b) => {
+            const ta = new Date(a.date).getTime()
+            const tb = new Date(b.date).getTime()
+            if (isNaN(ta) || isNaN(tb)) return 0
+            return tb - ta
+        })
+        return maxPosts > 0 ? list.slice(0, maxPosts) : list
+    }, [loaded, maxPosts])
 
     const gridTemplate =
         columns === "auto"
@@ -195,49 +193,6 @@ export default function BlogHub(props: Props) {
                     ) : null}
                 </div>
 
-                {/* Region filter */}
-                {showRegionFilter && regions.length > 0 ? (
-                    <div
-                        role="tablist"
-                        aria-label="Filter posts by region"
-                        style={{
-                            display: "flex",
-                            flexWrap: "wrap",
-                            gap: 10,
-                        }}
-                    >
-                        {["All", ...regions].map((region) => {
-                            const active = region === activeRegion
-                            return (
-                                <button
-                                    key={region}
-                                    role="tab"
-                                    aria-selected={active}
-                                    onClick={() => setActiveRegion(region)}
-                                    style={{
-                                        cursor: "pointer",
-                                        fontFamily: SANS_STACK,
-                                        fontSize: 14,
-                                        fontWeight: 600,
-                                        letterSpacing: "0.01em",
-                                        padding: "8px 16px",
-                                        borderRadius: 999,
-                                        border: `1px solid ${active ? linkColor : borderColor}`,
-                                        background: active
-                                            ? linkColor
-                                            : "transparent",
-                                        color: active ? "#FFFFFF" : textColor,
-                                        transition:
-                                            "background 0.15s ease, color 0.15s ease, border-color 0.15s ease",
-                                    }}
-                                >
-                                    {region}
-                                </button>
-                            )
-                        })}
-                    </div>
-                ) : null}
-
                 {/* Grid */}
                 {visiblePosts.length > 0 ? (
                     <div
@@ -272,7 +227,7 @@ export default function BlogHub(props: Props) {
                             fontFamily: SANS_STACK,
                         }}
                     >
-                        No posts in this region yet.
+                        Loading articles…
                     </p>
                 )}
             </div>
@@ -304,8 +259,6 @@ function BlogCard({
     linkColor: string
     radius: number
 }) {
-    const dateLabel = formatDate(post.date)
-
     return (
         <a
             href={post.href}
@@ -348,27 +301,6 @@ function BlogCard({
                         }}
                     />
                 ) : null}
-
-                {post.region ? (
-                    <span
-                        style={{
-                            position: "absolute",
-                            top: 14,
-                            left: 14,
-                            padding: "6px 12px",
-                            borderRadius: 999,
-                            background: "rgba(255,255,255,0.92)",
-                            color: headingColor,
-                            fontFamily: SANS_STACK,
-                            fontSize: 12,
-                            fontWeight: 600,
-                            letterSpacing: "0.04em",
-                            textTransform: "uppercase",
-                        }}
-                    >
-                        {post.region}
-                    </span>
-                ) : null}
             </div>
 
             {/* Body */}
@@ -391,8 +323,8 @@ function BlogCard({
                         color: mutedColor,
                     }}
                 >
-                    {dateLabel ? <span>{dateLabel}</span> : null}
-                    {dateLabel && (post.author || post.readTime) ? (
+                    {post.date ? <span>{post.date}</span> : null}
+                    {post.date && (post.author || post.readTime) ? (
                         <span aria-hidden>•</span>
                     ) : null}
                     {post.author ? <span>{post.author}</span> : null}
@@ -449,9 +381,9 @@ function BlogCard({
 }
 
 BlogHub.defaultProps = {
+    sourceUrl: ARTICLES_URL,
     heading: "The French Maison Journal",
     intro: "Stories, guides and inspiration for your next villa holiday in France — from regional travel notes to seasonal highlights.",
-    showRegionFilter: true,
     maxPosts: 0,
     columns: "auto",
     maxWidth: 1200,
@@ -467,80 +399,27 @@ BlogHub.defaultProps = {
     linkColor: "#153852",
     posts: [
         {
-            title: "A Slow Summer in Provence",
+            title: "Loading the latest articles…",
             excerpt:
-                "Lavender fields, hilltop markets and long lunches — how to plan an unhurried villa holiday in the heart of Provence.",
-            cover: "https://images.unsplash.com/photo-1499002238440-d264edd596ec",
-            region: "Provence",
-            date: "2026-06-01",
-            href: "/blog/slow-summer-in-provence",
-            author: "French Maison",
-            readTime: "6 min read",
-            featured: true,
-        },
-        {
-            title: "Brittany's Wild Atlantic Coast",
-            excerpt:
-                "Rugged coastline, sandy coves and seafood straight off the boat — a guide to coastal villa stays in Brittany.",
-            cover: "https://images.unsplash.com/photo-1505693416388-ac5ce068fe85",
-            region: "Brittany",
-            date: "2026-05-18",
-            href: "/blog/brittany-atlantic-coast",
-            author: "French Maison",
-            readTime: "5 min read",
-        },
-        {
-            title: "Family Villa Holidays in the Dordogne",
-            excerpt:
-                "River valleys, honey-coloured villages and space to roam — why the Dordogne is made for relaxed family trips.",
-            cover: "https://images.unsplash.com/photo-1494526585095-c41746248156",
-            region: "Dordogne",
-            date: "2026-05-02",
-            href: "/blog/family-villas-dordogne",
-            author: "French Maison",
-            readTime: "7 min read",
+                "Live posts are fetched from articles.json. This placeholder shows only if the fetch hasn't completed.",
+            cover: "",
+            date: "",
+            href: "/blog",
         },
     ],
 }
 
 addPropertyControls(BlogHub, {
-    posts: {
-        type: ControlType.Array,
-        title: "Posts",
-        control: {
-            type: ControlType.Object,
-            controls: {
-                title: { type: ControlType.String, title: "Title" },
-                excerpt: {
-                    type: ControlType.String,
-                    title: "Excerpt",
-                    displayTextArea: true,
-                },
-                cover: { type: ControlType.Image, title: "Cover" },
-                region: { type: ControlType.String, title: "Region" },
-                date: {
-                    type: ControlType.String,
-                    title: "Date",
-                    placeholder: "YYYY-MM-DD",
-                },
-                href: { type: ControlType.Link, title: "Link" },
-                author: { type: ControlType.String, title: "Author" },
-                readTime: { type: ControlType.String, title: "Read Time" },
-                featured: { type: ControlType.Boolean, title: "Featured" },
-            },
-        },
+    sourceUrl: {
+        type: ControlType.String,
+        title: "Source URL",
+        description: "articles.json feed (raw GitHub)",
     },
     heading: { type: ControlType.String, title: "Heading" },
     intro: {
         type: ControlType.String,
         title: "Intro",
         displayTextArea: true,
-    },
-    showRegionFilter: {
-        type: ControlType.Boolean,
-        title: "Region Filter",
-        enabledTitle: "Show",
-        disabledTitle: "Hide",
     },
     maxPosts: {
         type: ControlType.Number,
