@@ -40,6 +40,8 @@ type Props = {
     link4Href: string
     link5Label: string
     link5Href: string
+    link6Label: string
+    link6Href: string
 
     trust1: string
     trust2: string
@@ -92,6 +94,8 @@ export default function FMFooter(props: Props) {
         link4Href,
         link5Label,
         link5Href,
+        link6Label,
+        link6Href,
 
         trust1,
         trust2,
@@ -151,6 +155,7 @@ export default function FMFooter(props: Props) {
 
     const links: FooterLink[] = [
         { label: link1Label, href: link1Href },
+        { label: link6Label, href: link6Href },
         { label: link2Label, href: link2Href },
         { label: link3Label, href: link3Href },
         { label: link4Label, href: link4Href },
@@ -604,6 +609,8 @@ FMFooter.defaultProps = {
     link4Href: "/privacy-policy",
     link5Label: "Terms",
     link5Href: "/terms",
+    link6Label: "Journal",
+    link6Href: "/blog",
 
     trust1: "Specialist in villa holidays in France",
     trust2: "Personal booking support",
@@ -758,6 +765,16 @@ addPropertyControls(FMFooter, {
         type: ControlType.String,
         title: "URL 5",
         defaultValue: "/terms",
+    },
+    link6Label: {
+        type: ControlType.String,
+        title: "Link 6",
+        defaultValue: "Journal",
+    },
+    link6Href: {
+        type: ControlType.String,
+        title: "URL 6",
+        defaultValue: "/blog",
     },
 
     trust1: {
