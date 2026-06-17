@@ -1,61 +1,71 @@
 import json, re, urllib.request, sys, html, os, time
 
-# Published site identifiers (found in the site's HTML).
-SITE = "6vdtmT9SMef8Mgl9tAHO4C"
-INDEX_COLLECTION = "6IqdzyrmIapc"
+# Everything is read from the PUBLISHED domain (sitemap + page OpenGraph tags),
+# which is built to be crawled. We deliberately avoid framerusercontent.com
+# (Framer's asset host) because its Cloudflare bot protection 403s datacenter
+# IPs such as GitHub Actions runners.
 BASE = "https://frenchmaison.co.uk"
-INDEX_URL = f"https://framerusercontent.com/sites/{SITE}/searchIndex-{INDEX_COLLECTION}.json"
+SITEMAP_URL = f"{BASE}/sitemap.xml"
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 OUT_JSON = os.path.join(REPO, "articles.json")
 COMPONENT = os.path.join(REPO, "Main_Components", "BlogHub.tsx")
 
-def fetch(url):
-    req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
-    return urllib.request.urlopen(req, timeout=30).read().decode("utf-8", "ignore")
+HEADERS = {
+    "User-Agent": (
+        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 "
+        "(KHTML, like Gecko) Chrome/124.0 Safari/537.36"
+    ),
+    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+    "Accept-Language": "en-GB,en;q=0.9",
+}
 
-idx = json.loads(fetch(INDEX_URL))
-blog = {k: v for k, v in idx.items() if k.startswith("/blog/")}
+def fetch(url, tries=4):
+    last = None
+    for attempt in range(tries):
+        try:
+            req = urllib.request.Request(url, headers=HEADERS)
+            return urllib.request.urlopen(req, timeout=30).read().decode("utf-8", "ignore")
+        except Exception as e:  # noqa: BLE001 — retry transient blocks/timeouts
+            last = e
+            time.sleep(1.5 * (attempt + 1))
+    raise last
 
-date_re = re.compile(r"^\d{1,2} [A-Z][a-z]{2} \d{4}$")
-og_img_re = re.compile(r'<meta[^>]+property=["\']og:image["\'][^>]+content=(["\'])(.*?)\1', re.I)
-og_title_re = re.compile(r'<meta[^>]+property=["\']og:title["\'][^>]+content=(["\'])(.*?)\1', re.I)
+def og(page, prop):
+    m = re.search(
+        rf'<meta[^>]+property=["\']og:{prop}["\'][^>]+content=(["\'])(.*?)\1',
+        page, re.I,
+    )
+    return html.unescape(m.group(2).replace("&amp;", "&")) if m else ""
+
+# 1) Collect all /blog/ post URLs from the sitemap.
+sitemap = fetch(SITEMAP_URL)
+paths = sorted(set(re.findall(r"/blog/[a-z0-9-]+", sitemap)))
+
+date_re = re.compile(r"\b\d{1,2} (?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec) 20\d{2}\b")
+read_re = re.compile(r"\b(\d+)\s*min read\b")
 
 articles = []
-for path, data in blog.items():
-    ps = data.get("p", [])
-    # date
-    date = next((p for p in ps if date_re.match(p.strip())), "")
-    # read time: number immediately followed by "min read"
-    read = ""
-    for i, p in enumerate(ps):
-        if p.strip() == "min read" and i > 0 and ps[i-1].strip().isdigit():
-            read = f"{ps[i-1].strip()} min read"; break
-    # author
-    author = next((p for p in ps if "French Maison" in p), "")
-    # fetch page for og:image + nicer title.
-    # Rapid sequential fetches can hit bot protection (a challenge page with no
-    # og:image), which would silently blank covers — so retry with backoff until
-    # we get a page that actually contains the cover, then fail loudly if not.
-    cover_m = None
-    page = ""
-    for attempt in range(4):
-        page = fetch(BASE + path)
-        cover_m = og_img_re.search(page)
-        if cover_m:
-            break
-        time.sleep(1.5 * (attempt + 1))
-    if not cover_m:
-        print(f"ERROR: no og:image for {path} after retries", file=sys.stderr)
+for path in paths:
+    page = fetch(BASE + path)
+    text = html.unescape(re.sub(r"\s+", " ", re.sub(r"<[^>]+>", " ", page)))
+
+    cover = re.sub(r"\?width=\d+&height=\d+", "", og(page, "image"))
+    title = og(page, "title").strip()
+    excerpt = og(page, "description").strip()
+    dm = date_re.search(text)
+    rm = read_re.search(text)
+    date = dm.group(0) if dm else ""
+    read = f"{rm.group(1)} min read" if rm else ""
+    author = "The French Maison Team" if "The French Maison Team" in text else ""
+
+    if not (cover and title):
+        print(f"ERROR: missing cover/title for {path}", file=sys.stderr)
         sys.exit(1)
-    cover = cover_m.group(2).replace("&amp;", "&")
-    # strip framer width/height bloat from cover (we re-optimize via proxy anyway)
-    cover = re.sub(r"\?width=\d+&height=\d+", "", cover)
-    title_m = og_title_re.search(page)
-    title = html.unescape((title_m.group(2) if title_m else data.get("title", "")).strip())
+
     articles.append({
         "title": title,
-        "excerpt": html.unescape(data.get("description", "").strip()),
+        "excerpt": excerpt,
         "cover": cover,
         "date": date,
         "href": path,
