@@ -98,6 +98,15 @@ const BAKED_ARTICLES: Post[] = [
         readTime: "10 min read",
     },
     {
+        title: "Book French Villa Direct vs Through an Agency (2026 Guide)",
+        excerpt: "Direct, UK agency or marketplace? The honest cost, contract and consumer-protection trade-offs for UK travellers booking a French villa in 2026.",
+        cover: "https://framerusercontent.com/images/ow9mTtmWBD4UEBS7qnUHzvMwq1o.jpg",
+        date: "17 Jun 2026",
+        href: "/blog/book-french-villa-direct-vs-agency",
+        author: "The French Maison Team",
+        readTime: "9 min read",
+    },
+    {
         title: "What's Included in a French Villa Rental? UK Guide 2026",
         excerpt: "From taxe de séjour to end-clean, linen and wifi: what a French villa rental price actually covers, and what UK travellers pay on top in 2026.",
         cover: "https://framerusercontent.com/images/glRRotWL58ipIVcepDX2xGqAs.jpg",
