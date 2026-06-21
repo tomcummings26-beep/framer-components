@@ -47,11 +47,19 @@ read_re = re.compile(r"\b(\d+)\s*min read\b")
 
 articles = []
 for path in paths:
-    page = fetch(BASE + path)
-    text = html.unescape(re.sub(r"\s+", " ", re.sub(r"<[^>]+>", " ", page)))
+    # A transient Cloudflare challenge can return HTTP 200 with no OG tags (so
+    # fetch() won't raise). Re-fetch with backoff until the cover+title are
+    # present, then fail loudly so we never ship a half-empty list.
+    cover = title = ""
+    for attempt in range(5):
+        page = fetch(BASE + path)
+        cover = re.sub(r"\?width=\d+&height=\d+", "", og(page, "image"))
+        title = og(page, "title").strip()
+        if cover and title:
+            break
+        time.sleep(2 * (attempt + 1))
 
-    cover = re.sub(r"\?width=\d+&height=\d+", "", og(page, "image"))
-    title = og(page, "title").strip()
+    text = html.unescape(re.sub(r"\s+", " ", re.sub(r"<[^>]+>", " ", page)))
     excerpt = og(page, "description").strip()
     dm = date_re.search(text)
     rm = read_re.search(text)
@@ -60,7 +68,7 @@ for path in paths:
     author = "The French Maison Team" if "The French Maison Team" in text else ""
 
     if not (cover and title):
-        print(f"ERROR: missing cover/title for {path}", file=sys.stderr)
+        print(f"ERROR: missing cover/title for {path} after retries", file=sys.stderr)
         sys.exit(1)
 
     articles.append({
