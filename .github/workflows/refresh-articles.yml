@@ -1,0 +1,58 @@
+name: Refresh blog articles
+
+# Regenerates articles.json + the baked article list in BlogHub.tsx from the
+# live published site, and commits only if something changed.
+#
+# Runs from GitHub's runners (whose IPs the site's Cloudflare allows — unlike
+# Claude's remote runner, which gets 403'd). Blogs publish Mon/Wed/Fri at 09:00
+# UK time, so this runs at 10:00 UTC on those days (after the post is live in
+# either BST or GMT; GitHub cron is UTC-only and ignores DST, hence the buffer).
+# Can also be run on demand from the Actions tab.
+#
+# NOTE: after this commits, you still need to PULL BlogHub.tsx into Framer via
+# the GitHub Link plugin and REPUBLISH the site for the new links to appear in
+# the crawlable static HTML — Framer has no API to automate that step.
+
+on:
+  schedule:
+    - cron: "0 10 * * 1,3,5" # 10:00 UTC, Mon/Wed/Fri
+  workflow_dispatch: {} # manual "Run workflow" button
+
+permissions:
+  contents: write
+
+concurrency:
+  group: refresh-articles
+  cancel-in-progress: false
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Regenerate articles
+        run: python3 scripts/gen_articles.py
+
+      - name: Commit if changed
+        run: |
+          if [ -n "$(git status --porcelain articles.json Main_Components/BlogHub.tsx)" ]; then
+            git config user.name "github-actions[bot]"
+            git config user.email "github-actions[bot]@users.noreply.github.com"
+            git add articles.json Main_Components/BlogHub.tsx
+            git commit -m "Refresh blog articles from live CMS"
+            git push
+            {
+              echo "### ✅ Articles updated"
+              echo ""
+              echo "New/changed posts were committed. **Next step:** open the"
+              echo "GitHub Link plugin in Framer, pull \`BlogHub.tsx\`, and republish"
+              echo "so the new links appear in the crawlable static HTML."
+            } >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "No changes — articles already up to date." >> "$GITHUB_STEP_SUMMARY"
+          fi
